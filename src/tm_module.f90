@@ -1,4 +1,11 @@
 module tm_module
+! ---------------------------------------------------------------------------------------!
+!! Transport matrix related subroutines
+!!
+!! - initialise model
+!! - main timestepping subroutine
+!! - various matrix operations
+! ---------------------------------------------------------------------------------------!
 
 use fml_lib
 use io_module
@@ -8,8 +15,20 @@ contains
 
 ! ---------------------------------------------------------------------------------------!
 
-! ---------------------------------------------------------------------------------------!
 subroutine initialise_model()
+! ---------------------------------------------------------------------------------------!
+!! Initialises FML model
+!!
+!! 1) sets up array indices
+!!
+!! 2) allocates arrays
+!!
+!! 3) loads in matrix data
+!!
+!! 4) initialises parameters
+!!
+!! 5) initialises arrays
+! ---------------------------------------------------------------------------------------!
 
 ! local variables
 integer::n
@@ -20,45 +39,101 @@ integer,dimension(8)::value
 
 ! print header text to screen
 call date_and_time(date,time,zone,value)
-print*,
+print*,''
 print*,'**************************'
-print*,'*** Fortran Matrix Lab ***'
+print*,'*** Fortran (Transport) Matrix Lab ***'
 print*,'**************************'
 print*,''
 print '(1x,I4,A1,I2,A1,I2)',value(1),'/',value(2),'/',value(3)
 print '(1x,I2,A1,I2,A1,I2)',value(5),':',value(6),':',value(7)
 print*,''
 print*,'*************************'
-print*,
+print*,''
 print*,'Input Directory:'
-print*,'../data'//'/'//trim(tm_data_fileloc)
-PRINT*,
+print*,'data'//'/'//trim(tm_data_fileloc)
+PRINT*,''
 if(gen_restart_select)then
 print*,'Restart Directory:'
-print*,'../output/'//trim(gen_restart_filename)
-PRINT*,
+print*,'output/'//trim(gen_restart_filename)
+PRINT*,''
 end if
 print*,'Output Directory:'
-print*,'../output/'//trim(gen_config_filename)
-print*,
+print*,'output/'//trim(gen_config_filename)
+print*,''
 print*,'*************************'
-print*,
+print*,''
 print*,'Initialising model...'
-print*,
+print*,''
 
-call calc_seasonal_scaling()
+! -- set-up output files-- !
 call load_data_saving()
 call initialise_output()
 
-! for defining iSur
-if(bg_n_euphotic_lyrs.eq.1)then
-	n_euphotic_boxes=4448
-elseif(bg_n_euphotic_lyrs.eq.2)then
-	n_euphotic_boxes=8840
-end if
+! -- set-up Transport Matrices -- !
+call load_TM_metadata('data'//'/'//trim(tm_data_fileloc)//'/'//trim(tm_Aexp_filename),Aexp)
+call load_TM_metadata('data'//'/'//trim(tm_data_fileloc)//'/'//trim(tm_Aimp_filename),Aimp)
 
-n_surface_boxes=4448
+allocate(Aexp%val_n(Aexp%nnz,Aexp%n_time))
+allocate(Aexp%val(Aexp%nnz))
+allocate(Aexp%row(Aexp%nb+1))
+allocate(Aexp%col(Aexp%nnz))
 
+allocate(Aimp%val_n(Aimp%nnz,Aimp%n_time))
+allocate(Aimp%val(Aimp%nnz))
+allocate(Aimp%row(Aimp%nb+1))
+allocate(Aimp%col(Aimp%nnz))
+
+call load_TM_netcdf('data'//'/'//trim(tm_data_fileloc)//'/'//trim(tm_Aexp_filename),Aexp)
+call load_TM_netcdf('data'//'/'//trim(tm_data_fileloc)//'/'//trim(tm_Aimp_filename),Aimp)
+
+call set_TM_timestep()
+
+tm_nbox=Aexp%nb
+n_seasonal=Aexp%n_time
+
+! -- load Transport Matrid grid -- !
+allocate(tm_i(tm_nbox))
+allocate(tm_j(tm_nbox))
+allocate(tm_k(tm_nbox))
+allocate(tm_lon(tm_nbox))
+allocate(tm_lat(tm_nbox))
+allocate(tm_depth(tm_nbox))
+allocate(tm_depth_btm(tm_nbox))
+allocate(tm_area(tm_nbox))
+allocate(tm_vol(tm_nbox))
+allocate(tm_wc(tm_nbox))
+call load_TM_grid_data()
+
+n_euphotic_boxes=0
+n_surface_boxes=0
+do n=1,tm_nbox
+	if(tm_k(n).le.bg_n_euphotic_lyrs) n_euphotic_boxes=n_euphotic_boxes+1
+	if(tm_k(n).eq.1) n_surface_boxes=n_surface_boxes+1
+end do
+call find_water_columns()
+
+allocate(Aconv%val(tm_nbox))
+allocate(Aconv%row(tm_nbox+1))
+allocate(Aconv%col(tm_nbox))
+call create_Aconv()
+
+! -- load boundary condition data -- !
+allocate(tm_T(n_euphotic_boxes,n_seasonal))
+allocate(tm_S(n_euphotic_boxes,n_seasonal))
+allocate(tm_silica(n_euphotic_boxes,n_seasonal))
+allocate(bg_martin_b(tm_nbox))
+allocate(tm_seaice_frac(n_euphotic_boxes,n_seasonal))
+allocate(tm_windspeed(n_euphotic_boxes,n_seasonal))
+call load_TM_bgc_data()
+
+allocate(seaice_dt(n_euphotic_boxes))
+allocate(wind_dt(n_euphotic_boxes))
+allocate(T_dt(n_euphotic_boxes))
+allocate(S_dt(n_euphotic_boxes))
+allocate(silica_dt(n_euphotic_boxes))
+
+! -- set-up model arrays -- !
+call calc_seasonal_scaling()
 ! tracer indices
 ioPO4=1
 ioDOP=2
@@ -90,29 +165,7 @@ n_ATM_tracers=2 ! n.b. 1 does not allow array operations
 !if(bg_O_select) n_ATM_tracers=n_ATM_tracers+1
 !IF(bg_C_select) n_ATM_tracers=n_ATM_tracers+1
 
-! set-up sparse matrices
-Aexp%nnz=tm_Aexp_nnz
-Aimp%nnz=tm_Aimp_nnz
-!Aremin%nnz=tm_Aremin_nnz
 
-allocate(Aexp%val_n(Aexp%nnz,n_seasonal))
-allocate(Aexp%val(Aexp%nnz))
-allocate(Aexp%row(tm_nbox+1))
-allocate(Aexp%col(Aexp%nnz))
-
-allocate(Aimp%val_n(Aimp%nnz,n_seasonal))
-allocate(Aimp%val(Aimp%nnz))
-allocate(Aimp%row(tm_nbox+1))
-allocate(Aimp%col(Aimp%nnz))
-
-!allocate(Aremin%val_n(Aremin%nnz,1))
-!allocate(Aremin%val(Aremin%nnz))
-!allocate(Aremin%row(tm_nbox+1))
-!allocate(Aremin%col(Aremin%nnz))
-
-allocate(Aconv%val(tm_nbox))
-allocate(Aconv%row(tm_nbox+1))
-allocate(Aconv%col(tm_nbox))
 allocate(tracers(tm_nbox,gen_n_tracers))
 allocate(tracers_1(tm_nbox,gen_n_tracers))
 allocate(C(tm_nbox,4))
@@ -132,24 +185,6 @@ if(tm_save_PO4_uptake)then
 	allocate(export_save_int(n_euphotic_boxes,tm_n_dt))
 endif
 
-allocate(iSur(n_euphotic_boxes))
-allocate(tm_seaice_frac(n_euphotic_boxes,n_seasonal))
-allocate(tm_windspeed(n_euphotic_boxes,n_seasonal))
-allocate(tm_area(tm_nbox))
-allocate(tm_vol(tm_nbox))
-allocate(tm_i(tm_nbox))
-allocate(tm_j(tm_nbox))
-allocate(tm_k(tm_nbox))
-allocate(tm_lon(tm_nbox))
-allocate(tm_lat(tm_nbox))
-allocate(tm_depth(tm_nbox))
-allocate(tm_depth_btm(tm_nbox))
-allocate(tm_wc(tm_nbox))
-allocate(tm_T(n_euphotic_boxes,n_seasonal))
-allocate(tm_S(n_euphotic_boxes,n_seasonal))
-allocate(tm_silica(n_euphotic_boxes,n_seasonal))
-allocate(bg_martin_b(tm_nbox))
-
 select case(trim(bg_uptake_function))
 case('restore')
 	allocate(bg_PO4_obs(n_euphotic_boxes,n_seasonal))
@@ -157,24 +192,7 @@ case('fixed')
 	allocate(bg_PO4_uptake(n_euphotic_boxes,tm_n_dt))
 end select
 
-allocate(seaice_dt(n_euphotic_boxes))
-allocate(wind_dt(n_euphotic_boxes))
-allocate(T_dt(n_euphotic_boxes))
-allocate(S_dt(n_euphotic_boxes))
-allocate(silica_dt(n_euphotic_boxes))
-
-call load_TM_data()
-call find_water_columns()
-call create_Aconv()
-
-
-! surface indices (are the first 4448 entries to the vector)
-do n=1,n_euphotic_boxes
-	iSur(n)=n
-end do
-
-
-! initialise tracer array
+! -- initialise model arrays -- !
 if(gen_restart_select)then
 	call load_restart()
 else
@@ -193,9 +211,6 @@ Jatm(:,:)=0.0
 dt_count=1 ! keep track of how many timesteps have passed in one year
 
 ! convert parameters to correct units
-tm_dt=1.0/real(tm_n_dt) ! TMM timestep
-bg_dt=tm_dt*bg_dt_ratio ! BGC timestep
-
 
 bg_DOC_rfrac=1.0-bg_DOC_frac ! reciprical of DOC fraction
 !bg_DOC_k=1.0/bg_DOC_k ! year-1
@@ -227,13 +242,13 @@ C_consts(:,:)=0.0
 !ATM(iaCO2)=278.0*1.0e-6
 
 ! print final header
-print*,
+print*,''
 print*,'*************************'
-print*,
+print*,''
 print*,'Running model...'
-print*,
+print*,''
 print*,'*************************'
-print*,
+print*,''
 print'(A7,A4,A7,A3,A8,A3,A5,A3,A8,A3,A9,A3)', &
 '       ', &
 'year', &
@@ -257,7 +272,78 @@ end subroutine initialise_model
 
 ! ---------------------------------------------------------------------------------------!
 
+subroutine set_TM_timestep()
+! ---------------------------------------------------------------------------------------!
+!! Applies timestep to transport matrices
+! ---------------------------------------------------------------------------------------!
+
+! local variables
+integer::n,nn
+real::exponent,t
+
+! Aexp = I+m(Aexp)
+Aexp%val_n=Aexp%val_n*tm_dt_scale*tm_native_dt
+
+do n=1,Aexp%nb
+	do nn=Aexp%row(n),Aexp%row(n+1)-1
+		if(Aexp%col(nn).eq.n) Aexp%val_n(nn,:)=1.0+Aexp%val_n(nn,:)
+	end do
+end do
+
+! allocate temporary Aimp copy
+! Aimp accumulates results
+allocate(Apow1%val_n(Aimp%nnz,Aimp%n_time))
+allocate(Apow1%val(Aimp%nnz))
+allocate(Apow1%row(Aimp%nb+1))
+allocate(Apow1%col(Aimp%nnz))
+
+! copy Aimp
+Apow1%val_n=Aimp%val_n
+Apow1%val=Aimp%val
+Apow1%row=Aimp%row
+Apow1%col=Aimp%col
+Apow1%nnz=Aimp%nnz
+Apow1%nb=Aimp%nb
+Apow1%n_time=Aimp%n_time
+
+! calculate Aimp**tm_dt_scale
+exponent=tm_dt_scale
+do
+	t=mod(exponent,2.0)
+	exponent=floor(exponent/2.0)
+
+	if(t.eq.1.0)then
+		call amub(Aimp,Apow1)
+	endif
+
+	if(exponent.eq.0.0)then
+		exit
+	endif
+
+	call amub(Apow1,Apow1)
+enddo
+
+! deallocate temporary Aimp copy
+deallocate(Apow1%val_n)
+deallocate(Apow1%val)
+deallocate(Apow1%row)
+deallocate(Apow1%col)
+
+! timestep
+tm_dt=tm_native_dt*tm_dt_scale*(1.0/(60.0*60.0*24.0*360.0)) ! yr
+bg_dt=tm_dt*bg_dt_ratio ! BGC timestep
+tm_n_dt=nint(1.0/tm_dt)
+
+end subroutine set_TM_timestep
+
+! ---------------------------------------------------------------------------------------!
+
+! ---------------------------------------------------------------------------------------!
+
 subroutine calc_seasonal_scaling
+! ---------------------------------------------------------------------------------------!
+!! Calculates indices for interpolating the seasonal transport matrices
+! ---------------------------------------------------------------------------------------!
 
 ! local variables
 integer::n,count,nn,n_dt_season
@@ -391,12 +477,24 @@ end if
 end subroutine calc_seasonal_scaling
 
 ! ---------------------------------------------------------------------------------------!
-! integrate model
-! - integrates model forward in time
-! - calculates Aimp*(Aexp*c+q) (Khatiwala 2007: eqn. 2)
 ! ---------------------------------------------------------------------------------------!
 
 subroutine timestep_fml()
+! ---------------------------------------------------------------------------------------!
+!! Integrate model forward in time
+!!
+!! - integrates model forward in time using fixed timesteps
+!!
+!! - calculates  \(\mathbf{A_{imp}} * ( \mathbf{A_{exp}}*\mathbf{c}+\mathbf{q}) \) where:
+!!
+!! \(\mathbf{A_{imp}}\) - implicit matrix
+!!
+!! \(\mathbf{A_{exp}}\) - explicit matrix
+!!
+!! \(\mathbf{c}\) - state variable vector
+!!
+!! \(\mathbf{q}\) - source/sink vector
+! ---------------------------------------------------------------------------------------!
 
 integer::n
 
@@ -482,17 +580,24 @@ end subroutine timestep_fml
 ! end FUNCTION
 
 ! ---------------------------------------------------------------------------------------!
-! amul
-! - matrix-vector multiplication (CSR Format)
-! - adapted from SPARSEKIT (https://people.sc.fsu.edu/~jburkardt/f_src/sparsekit/sparsekit.html)
+
 ! ---------------------------------------------------------------------------------------!
 
 FUNCTION amul(A,vector)
+! ---------------------------------------------------------------------------------------!
+!! sparse matrix - vector multiplication (CSR format)
+!!
+!! adapted from SPARSEKIT (https://people.sc.fsu.edu/~jburkardt/f_src/sparsekit/sparsekit.html)
+! ---------------------------------------------------------------------------------------!
+
 ! output
 REAL,dimension(tm_nbox)::amul
 ! dummy
 type(sparse),intent(in)::A
+!! sparse matrix
 REAL,INTENT(in),dimension(tm_nbox)::vector
+!! vector
+
 ! local
 integer::n,nn
 real::sum_val
@@ -511,17 +616,24 @@ end do
 end FUNCTION
 
 ! ---------------------------------------------------------------------------------------!
-! amul_transpose
-! - matrix transpose - vector multiplication (CSR Format)
-! - adapted from SPARSEKIT (https://people.sc.fsu.edu/~jburkardt/f_src/sparsekit/sparsekit.html)
+
 ! ---------------------------------------------------------------------------------------!
 
 FUNCTION amul_transpose(A,vector)
+! ---------------------------------------------------------------------------------------!
+!! transpose sparse matrix - vector multiplication (CSR format)
+!!
+!! adapted from SPARSEKIT (https://people.sc.fsu.edu/~jburkardt/f_src/sparsekit/sparsekit.html)
+! ---------------------------------------------------------------------------------------!
+
 ! output
 REAL,dimension(tm_nbox)::amul_transpose
 ! dummy
 type(sparse),intent(in)::A
+!! sparse matrix
 REAL,INTENT(in),dimension(tm_nbox)::vector
+!! vector
+
 ! local
 integer::n,nn,i
 real::sum_val
@@ -539,92 +651,213 @@ end do
 end FUNCTION
 
 ! ---------------------------------------------------------------------------------------!
-! amub
-! - matrix * matrix (CSR Format) (assuming square matrices of same size)
-! - adapted from SPARSEKIT (https://people.sc.fsu.edu/~jburkardt/f_src/sparsekit/sparsekit.html)
+
 ! ---------------------------------------------------------------------------------------!
 
-! FUNCTION amub(A,B)
-! ! output
-! type(sparse),intent(inout)::amub
-! ! dummy
-! type(sparse),intent(in)::A
-! type(sparse),intent(in)::B
-! ! local
-! integer::n,nn,i
-! real::sum_val
-! real,dimension(tm_nbox)::tmp
+function amub_nnz(A,B)
+! ---------------------------------------------------------------------------------------!
+!! sparse matrix multiplication (CSR format): find nonzeros
+!!
+!! adapted from SPARSEKIT (https://people.sc.fsu.edu/~jburkardt/f_src/sparsekit/sparsekit.html)
+! ---------------------------------------------------------------------------------------!
+
+! output
+integer::amub_nnz
+! dummy
+type(sparse),intent(in)::A
+!! sparse matrix
+type(sparse),intent(in)::B
+!! sparse matrix
+
+! local
+integer::ncol
+integer::ncolb
+integer::nrow
+integer::ii
+integer,dimension(size(A%row)-1)::iw
+integer::j
+integer::jc
+integer::jr
+integer::k
+integer::last
+integer::ldg
+integer,dimension(size(A%row)-1)::ndegr
+
+! assuming square matrices of same size
+ncol=size(A%row)-1
+ncolb=size(A%row)-1
+nrow=size(A%row)-1
+
+iw(1:ncolb) = 0
+ndegr(1:nrow) = 0
+
+do ii = 1, nrow
 !
-! integer::len
-! integer,dimension(size(A%row))::ic
-! integer,dimension(tm_nbox)::iw
-! integer::ka,ii,kb,jj,k
-! real::scal
-! integer::nzmax,ncol,nrow
+!  For each row of A.
 !
-! nzmax=size(A%val) ! number of nnz's
-! ncol=tm_nbox ! size of col (assumes square matrix)
-! nrow=tm_nbox ! size of row (assumes square matrix)
+	ldg = 0
 !
+!  End-of-linked list.
 !
+	last = -1
+
+	do j = A%row(ii), A%row(ii+1)-1
 !
-! len = 0
-! ic(1) = 1
-! !
-! !  Initialize IW.
-! !
-! iw(1:ncol) = 0
+!  Row number to be added.
 !
-! do ii = 1, nrow
-! !
-! !  Row I.
-! !
-! 	do ka = A%row(ii), A%row(ii+1)-1
+			jr = A%col(j)
+
+			do k = B%row(jr), B%row(jr+1)-1
+				 jc = B%col(k)
 !
+!  Add one element to the linked list.
 !
-! 		scal = A%val(ka)
+				 if ( iw(jc) == 0 ) then
+						ldg = ldg + 1
+						iw(jc) = last
+						last = jc
+				 end if
+
+			 end do
+
+	end do
+
+	ndegr(ii) = ldg
 !
+!  Reset IW to zero.
 !
-! 		jj = B%col(ka)
+	do k = 1, ldg
+		j = iw(last)
+		iw(last) = 0
+		last = j
+	 end do
+
+end do
+
+! output nnz of A*B
+amub_nnz = sum ( ndegr(1:nrow) )
+
+end function
+
+! ---------------------------------------------------------------------------------------!
+
+! ---------------------------------------------------------------------------------------!
+
+subroutine amub(A,B)
+! ---------------------------------------------------------------------------------------!
+!! sparse matrix multiplication A*B (CSR format)
+!!
+!! assumes square Matrix
+!!
+!! writes result to matrix A
+!!
+!! adapted from SPARSEKIT (https://people.sc.fsu.edu/~jburkardt/f_src/sparsekit/sparsekit.html)
+! ---------------------------------------------------------------------------------------!
+
+! dummy
+type(sparse),intent(inout)::A
+!! sparse matrix
+type(sparse),intent(in)::B
+!! sparse matrix
+
+! local
+integer::n,nn,i,s
+real::sum_val
+real,dimension(A%nb)::tmp
+integer::len
+integer::ierr
+integer,dimension(A%nb)::iw
+integer::ka,ii,kb,jj,k
+integer::jcol,jpos
+real::scal
+integer::nzmax,ncol,nrow
+integer,dimension(size(A%row))::ic
+integer,allocatable,dimension(:)::jc
+real,allocatable,dimension(:,:)::c
+
+ncol=A%nb ! size of col (assumes square matrix)
+nrow=A%nb ! size of row (assumes square matrix)
+
+! find nnz's of new matrix
+nzmax=amub_nnz(A,B)
+
+! allocate working arrays
+allocate(jc(nzmax))
+allocate(c(nzmax,A%n_time))
+
+do s = 1, A%n_time
+
+len = 0
+ic(1) = 1
 !
-! 		do kb = B%row(jj), B%row(jj+1)-1
+!  Initialize IW.
 !
-! 				 jcol = B%col(kb)
-! 				 jpos = iw(jcol)
+iw(1:ncol) = 0
+
+do ii = 1, nrow
 !
-! 				 if ( jpos == 0 ) then
-! 						len = len + 1
-! 						if ( nzmax < len ) then
-! 							 ierr = ii
-! 							 return
-! 						end if
-! 						amub%col(len) = jcol
-! 						iw(jcol)= len
-! 						if ( values ) then
-! 							amub%val(len) = scal * B%val(kb)
-! 						end if
-! 				 else
-! 						if ( values ) then
-! 							amub%val(jpos) = amub%val(jpos) + scal * B%val(kb)
-! 						end if
-! 				 end if
+!  Row I.
 !
-! 			 end do
-!
-! 	end do
-!
-! 	do k = amub%row(ii), len
-! 		iw(amub%col(k)) = 0
-! 	end do
-!
-! 	amub%row(ii+1) = len + 1
-!
-! end do
-!
-! return
-! end
-!
-! end FUNCTION amub
+	do ka = A%row(ii), A%row(ii+1)-1
+
+
+		scal = A%val_n(ka,s)
+
+
+		jj = B%col(ka)
+
+		do kb = B%row(jj), B%row(jj+1)-1
+
+				 jcol = B%col(kb)
+				 jpos = iw(jcol)
+
+				 if ( jpos == 0 ) then
+						len = len + 1
+						if ( nzmax < len ) then
+							 ierr = ii
+							 return
+						end if
+						jc(len) = jcol
+						iw(jcol)= len
+						c(len,s) = scal * B%val_n(kb,s)
+				 else
+							c(jpos,s) = c(jpos,s) + scal * B%val_n(kb,s)
+				 end if
+
+		end do
+
+	end do
+
+	do k = ic(ii), len
+		iw(jc(k)) = 0
+	end do
+
+	ic(ii+1) = len + 1
+
+end do
+
+end do ! seasonal loop
+
+! set A to C=A*B
+if(nzmax.ne.B%nnz)then
+	! deallocate(A%val_n)
+	! deallocate(A%col)
+	!
+	! allocate(A%val_n(nzmax,A%n_time))
+	! allocate(A%col(nzmax))
+	print*,'fatal error - A*B results in different number of nonzeros'
+	stop
+end if
+
+A%val_n=c
+A%col=jc
+A%row=ic
+A%nnz=nzmax
+
+!deallocate(c)
+!deallocate(jc)
+
+end subroutine amub
 
 ! ---------------------------------------------------------------------------------------!
 ! aplb
@@ -718,9 +951,17 @@ end FUNCTION
 ! ---------------------------------------------------------------------------------------!
 
 subroutine print_to_screen(dum_t,dum_extra)
+! ---------------------------------------------------------------------------------------!
+!! Print output to screen during runtime
+! ---------------------------------------------------------------------------------------!
 
 integer::dum_t
-real::dum_extra,vol_rtot
+!! timestep
+real::dum_extra
+!! not used
+
+! local
+real::vol_rtot
 
 vol_rtot=1.0/sum(tm_vol)
 
@@ -741,10 +982,9 @@ end subroutine print_to_screen
 ! ---------------------------------------------------------------------------------------!
 
 subroutine tm_vars_at_dt()
-
-! linearly interpolate seaice, windstress, T, S at timestep
-! tm_seasonal_scale, tm_seasonal_rscale, tm_seasonal_n1, tm_seasonal, n2: from calc_seasonal_scaling
-! dt_count: fml.f90
+! ---------------------------------------------------------------------------------------!
+!! Linearly interpolate seaice, windstress, T, S at current timestep
+! ---------------------------------------------------------------------------------------!
 
 seaice_dt=(tm_seasonal_scale(dt_count)*tm_seaice_frac(:,tm_seasonal_n1(dt_count))) &
 + &
@@ -768,7 +1008,7 @@ silica_dt=(tm_seasonal_scale(dt_count)*tm_silica(:,tm_seasonal_n1(dt_count))) &
 
 ! convert wind_dt to correct units for gas exchange
 ! not pre-calculated due to non-linear terms (u^2)
-!!!! *** windspeed is m/s? so adjust this line of code *** !!!!
+! *** windspeed is m/s? so adjust this line of code *** !
 !print*,'wind m s-1',wind_dt(2000),seaice_dt(2000)
 wind_dt=(wind_dt*wind_dt)*bg_gastransfer_a*seaice_dt*conv_sec_yr
 
@@ -792,9 +1032,17 @@ end subroutine tm_vars_at_dt
 
 
 subroutine integrate_output(loc_t,loc_save_count,loc_dt_count)
-
+! ---------------------------------------------------------------------------------------!
+!! Average output and write to files if appropriate
+! ---------------------------------------------------------------------------------------!
+integer,intent(in)::loc_t
+!! timestep
 integer,intent(inOUT)::loc_save_count
-integer,intent(in)::loc_t,loc_dt_count
+!! counter to keep track of number of save intervals
+integer,intent(in)::loc_dt_count
+!! number of timesteps through averaging interval
+
+! local
 real::scalar
 
 !if(loc_t>=tm_timeseries(timeseries_count)*96-47 .and. loc_t<=tm_timeseries(timeseries_count)*96+48)then
@@ -857,6 +1105,9 @@ end subroutine integrate_output
 ! ---------------------------------------------------------------------------------------!
 
 subroutine find_water_columns()
+! ---------------------------------------------------------------------------------------!
+!! Creates index of water columns in model grid
+! ---------------------------------------------------------------------------------------!
 
 integer::n,nn
 integer::i,j
@@ -879,6 +1130,9 @@ end subroutine find_water_columns
 ! ---------------------------------------------------------------------------------------!
 
 subroutine create_Aconv()
+! ---------------------------------------------------------------------------------------!
+!! Creates a sparse matrix that re-orders vectors to water-column order for remin subroutines
+! ---------------------------------------------------------------------------------------!
 
 integer::n,nn,count
 integer,dimension(tm_nbox)::tmp,tmp2

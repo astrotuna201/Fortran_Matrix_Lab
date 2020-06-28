@@ -1,4 +1,11 @@
 PROGRAM fml
+! ---------------------------------------------------------------------------------------!
+!! Main runtime
+!! - calls subroutines to set up model
+!! - sets up main timestep loop
+!! - calls biogeochemistry subroutines
+!! - calls subroutines to write model output
+! ---------------------------------------------------------------------------------------!
 
 use fml_lib
 use tm_module
@@ -9,7 +16,10 @@ implicit none
 
 ! local variables
 integer::n,nn,t,p,count,save_count
+!! various loop and counting indices
 real::start,finish,sum_val,start2,finish2
+!! variables to track elapsed
+
 count=0
 save_count=1
 

@@ -1,4 +1,7 @@
 module bg_module
+! ---------------------------------------------------------------------------------------!
+!! Subroutines related to biogeochemistry
+! ---------------------------------------------------------------------------------------!
 
 use fml_lib
 use tm_module
@@ -7,31 +10,37 @@ implicit none
 contains
 
 ! ---------------------------------------------------------------------------------------!
-! PO4_uptake
-! - calculates biological uptake of PO4
-! - updates other tracers via Redfield
-! - calculates CaCO3 export via rain-ratio
+
 ! ---------------------------------------------------------------------------------------!
 
 subroutine PO4_uptake()
+! ---------------------------------------------------------------------------------------!
+!! Calculates PO4 uptake
+!!
+!! - calculates biological uptake of PO4
+!! - updates other tracers via Redfield ratios
+!! - calculates CaCO3 export via a rain-ratio
+! ---------------------------------------------------------------------------------------!
 
 integer::n
 real::uptake
-real,dimension(n_euphotic_boxes)::tmp_PO4
+real::tmp_PO4
+real::tmp_tracer
 
 do n=1,n_euphotic_boxes
 
 	uptake=0.0
+	tmp_tracer=tracers_1(n,ioPO4)
 
 	select case(trim(bg_uptake_function))
 	case('restore')
-		tmp_PO4=(tm_seasonal_scale(dt_count)*bg_PO4_obs(:,tm_seasonal_n1(dt_count)))&
+		tmp_PO4=(tm_seasonal_scale(dt_count)*bg_PO4_obs(n,tm_seasonal_n1(dt_count)))&
 		+ &
-		((tm_seasonal_rscale(dt_count))*bg_PO4_obs(:,tm_seasonal_n2(dt_count)))
-		if(tracers_1(n,ioPO4)>tmp_PO4(n)) uptake=seaice_dt(n)*bg_uptake_tau*(tracers_1(n,ioPO4)-tmp_PO4(n)) ! PO4 uptake
+		((tm_seasonal_rscale(dt_count))*bg_PO4_obs(n,tm_seasonal_n2(dt_count)))
+		if(tmp_tracer>tmp_PO4) uptake=seaice_dt(n)*bg_uptake_tau*(tmp_tracer-tmp_PO4) ! PO4 uptake
 	case('fixed')
 		uptake=0.0 ! set to zero initially, update if
-		if(tracers_1(n,ioPO4)-(bg_PO4_uptake(n,dt_count)*bg_dt)>0.0) uptake=bg_PO4_uptake(n,dt_count) ! PO4 uptake
+		if(tmp_tracer-(bg_PO4_uptake(n,dt_count)*bg_dt)>0.0) uptake=bg_PO4_uptake(n,dt_count) ! PO4 uptake
 	case('abiotic')
 		uptake=0.0
 	end select
@@ -67,6 +76,9 @@ end subroutine PO4_uptake
 ! ---------------------------------------------------------------------------------------!
 
 subroutine DOP_remin()
+! ---------------------------------------------------------------------------------------!
+!! Dissolved organic phosphorus remineralisation
+! ---------------------------------------------------------------------------------------!
 
 integer::n
 real::remin
@@ -121,6 +133,9 @@ end subroutine DOP_remin
 ! ---------------------------------------------------------------------------------------!
 
 subroutine update_bgc()
+! ---------------------------------------------------------------------------------------!
+!! add biogeochemical sources/sinks to state arrays
+! ---------------------------------------------------------------------------------------!
 integer::n,n_tracer
 
 do n_tracer=1,gen_n_tracers
@@ -138,9 +153,10 @@ end subroutine update_bgc
 ! ---------------------------------------------------------------------------------------!
 
 subroutine calc_C_consts()
-
-! calculate carbonate system constants
-! using DOE (1994)
+! ---------------------------------------------------------------------------------------!
+!! Calculate carbonate system constants
+!! - uses DOE (1994)
+! ---------------------------------------------------------------------------------------!
 
 real::T,S,I
 integer::n
@@ -231,10 +247,10 @@ end subroutine calc_C_consts
 ! ---------------------------------------------------------------------------------------!
 
 subroutine calc_pCO2()
-!............................................................
-! Solve carbonate system for pC02
-! M. Follows, T. Ito, S. Dutkiewicz (2006) in Ocean Modelling
-!.............................................................
+! ---------------------------------------------------------------------------------------!
+!! Solve carbonate system for pC02
+!! - M. Follows, T. Ito, S. Dutkiewicz (2006) in Ocean Modelling
+! ---------------------------------------------------------------------------------------!
 
 ! local variables
 real::pt,sit,ta,pco2,dic,H,bt,k1,k2,k1p,k2p,k3p,kb,kw,ksi,k0 ! ff in original but not used, added k0
@@ -339,6 +355,10 @@ end subroutine calc_pCO2
 ! ---------------------------------------------------------------------------------------!
 
 subroutine calc_gasexchange()
+! ---------------------------------------------------------------------------------------!
+!! Calculate gas exchange between atmosphere and ocean
+!! - Orr et al., (2017) Geoscientific Model Development
+! ---------------------------------------------------------------------------------------!
 
 real::loc_T,loc_T2,loc_T3,loc_T4,loc_Tr100,loc_T100_2,loc_TK,loc_S,loc_T100
 REAL::Sc,Bunsen,Sol,gasex
@@ -423,6 +443,9 @@ end subroutine calc_gasexchange
 ! ---------------------------------------------------------------------------------------!
 
 subroutine restore_atm_CO2()
+! ---------------------------------------------------------------------------------------!
+!! Applies a restoring forcing for CO2
+! ---------------------------------------------------------------------------------------!
 
 if(bg_restore_atm_CO2) ATM(iaCO2)=bg_restore_atm_CO2_target*1.0e-6
 
@@ -433,6 +456,9 @@ end subroutine restore_atm_CO2
 ! ---------------------------------------------------------------------------------------!
 
 subroutine water_column()
+! ---------------------------------------------------------------------------------------!
+!! Implicit remineralisation of particulate organic carbon and CaCO3
+! ---------------------------------------------------------------------------------------!
 
 integer::n,count,nn
 integer,dimension(maxval(tm_wc))::loc_wc_start,loc_wc_end

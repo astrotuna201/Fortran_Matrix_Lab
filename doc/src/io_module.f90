@@ -1,4 +1,7 @@
 module io_module
+! ---------------------------------------------------------------------------------------!
+!! Subroutines to load and write data
+! ---------------------------------------------------------------------------------------!
 
 use fml_lib
 use netcdf
@@ -7,11 +10,13 @@ implicit none
 contains
 
 ! ---------------------------------------------------------------------------------------!
-! load_TM_data
-! - calls routines to load TM data
+
 ! ---------------------------------------------------------------------------------------!
 
 subroutine load_TM_data()
+! ---------------------------------------------------------------------------------------!
+!! OLD: Load transport matrix data from file
+! ---------------------------------------------------------------------------------------!
 
 call load_TM_netcdf('../data'//'/'//trim(tm_data_fileloc)//'/'//trim(tm_Aexp_filename),Aexp)
 call load_TM_netcdf('../data'//'/'//trim(tm_data_fileloc)//'/'//trim(tm_Aimp_filename),Aimp)
@@ -37,14 +42,18 @@ endif
 end subroutine load_TM_data
 
 ! ---------------------------------------------------------------------------------------!
-! load_TM_netcdf
-! - loads transport matrix data
+
 ! ---------------------------------------------------------------------------------------!
 
 SUBROUTINE load_TM_netcdf(dum_filename,dum_A)
+! ---------------------------------------------------------------------------------------!
+!! Loads transport matrix data from netCDF files
+! ---------------------------------------------------------------------------------------!
 
 character(len=*)::dum_filename
+!! netCDF filename
 type(sparse)::dum_A
+!! sparse matrix arrays
 
 integer::loc_ncid,loc_varid,status
 character(len=100)::loc_lname
@@ -61,6 +70,7 @@ if(status /= nf90_NoErr) print*,trim(nf90_strerror(status)),'A_val'
 
 status=nf90_get_var(loc_ncid,loc_varid,dum_A%val_n)
 if(status /= nf90_NoErr) print*,trim(nf90_strerror(status)),'A_val'
+!print*,dum_A%val_n(1:10,1)
 
 ! matrix column indices
 status=nf90_inq_varid(loc_ncid,'A_col',loc_varid)
@@ -86,11 +96,65 @@ if(status /= nf90_NoErr) print*,trim(nf90_strerror(status))
 end subroutine load_TM_netcdf
 
 ! ---------------------------------------------------------------------------------------!
-! load_TM_grid_data
-! - loads transport matrix grid variables
+
+! ---------------------------------------------------------------------------------------!
+
+SUBROUTINE load_TM_metadata(dum_filename,dum_A)
+! ---------------------------------------------------------------------------------------!
+!! Loads transport matrix metadata from netCDF file
+! ---------------------------------------------------------------------------------------!
+
+character(len=*)::dum_filename
+!! netCDF filename
+type(sparse)::dum_A
+!! sparse matrix arrays
+
+integer::loc_ncid,loc_varid,status
+character(len=100)::loc_lname
+
+! open netcdf file
+status=nf90_open(trim(dum_filename),nf90_nowrite,loc_ncid)
+if(status /= nf90_NoErr) print*,trim(nf90_strerror(status)),dum_filename
+
+! nonzeros
+status=nf90_inq_varid(loc_ncid,'nnz',loc_varid)
+if(status /= nf90_NoErr) print*,trim(nf90_strerror(status)),'nnz'
+
+status=nf90_get_var(loc_ncid,loc_varid,dum_A%nnz)
+if(status /= nf90_NoErr) print*,trim(nf90_strerror(status)),'nnz'
+!print*,dum_A%nnz
+
+! nonzeros
+status=nf90_inq_varid(loc_ncid,'nb',loc_varid)
+if(status /= nf90_NoErr) print*,trim(nf90_strerror(status)),'nb'
+
+status=nf90_get_var(loc_ncid,loc_varid,dum_A%nb)
+if(status /= nf90_NoErr) print*,trim(nf90_strerror(status)),'nb'
+!print*,dum_A%nb
+
+! nonzeros
+status=nf90_inq_varid(loc_ncid,'n_season',loc_varid)
+if(status /= nf90_NoErr) print*,trim(nf90_strerror(status)),'n_time'
+
+status=nf90_get_var(loc_ncid,loc_varid,dum_A%n_time)
+if(status /= nf90_NoErr) print*,trim(nf90_strerror(status)),'n_time'
+!print*,dum_A%n_time
+
+! close netcdf file
+status=nf90_close(loc_ncid)
+if(status /= nf90_NoErr) print*,trim(nf90_strerror(status))
+
+
+end subroutine load_TM_metadata
+
+! ---------------------------------------------------------------------------------------!
+
 ! ---------------------------------------------------------------------------------------!
 
 subroutine load_TM_grid_data()
+! ---------------------------------------------------------------------------------------!
+!! Loads transport matrix grid data from netCDF file
+! ---------------------------------------------------------------------------------------!
 
 ! local variables
 integer::n,status,loc_varid,loc_ncid
@@ -171,12 +235,14 @@ if(status /= nf90_NoErr) print*,trim(nf90_strerror(status))
 end subroutine load_TM_grid_data
 
 ! ---------------------------------------------------------------------------------------!
-! load_TM_bgc_data
-! - loads biogeochemical-relevant data for transport matrix
+
 ! ---------------------------------------------------------------------------------------!
 
 
 subroutine load_TM_bgc_data()
+! ---------------------------------------------------------------------------------------!
+!! Loads transport matrix biogeochemistry data from netCDF file
+! ---------------------------------------------------------------------------------------!
 
 ! local variables
 integer::n,status,loc_varid,loc_ncid
@@ -231,11 +297,13 @@ tm_seaice_frac=1.0-tm_seaice_frac
 end subroutine
 
 ! ---------------------------------------------------------------------------------------!
-! load_PO4_restore
-! - loads PO4 observations
+
 ! ---------------------------------------------------------------------------------------!
 
 subroutine load_PO4_restore()
+! ---------------------------------------------------------------------------------------!
+!! Loads [PO4] observations from netCDF file for nutrient restoring subroutine
+! ---------------------------------------------------------------------------------------!
 
 ! local variables
 integer::n,status,loc_varid,loc_ncid
@@ -261,12 +329,14 @@ if(status /= nf90_NoErr) print*,trim(nf90_strerror(status))
 end subroutine
 
 ! ---------------------------------------------------------------------------------------!
-! load_Martin_b_spatial
-! - loads spatially varying field of Martin b
+
 ! ---------------------------------------------------------------------------------------!
 
 
 subroutine load_Martin_b_spatial()
+! ---------------------------------------------------------------------------------------!
+!! Loads spatially explicit Martin curve "b" data from netCDF
+! ---------------------------------------------------------------------------------------!
 
 ! local variables
 integer::n,status,loc_varid,loc_ncid
@@ -292,11 +362,13 @@ if(status /= nf90_NoErr) print*,trim(nf90_strerror(status))
 end subroutine load_Martin_b_spatial
 
 ! ---------------------------------------------------------------------------------------!
-! load_data_saving
-! - loads times for saving timeslice and timeseries
+
 ! ---------------------------------------------------------------------------------------!
 
 subroutine load_data_saving()
+! ---------------------------------------------------------------------------------------!
+!! Loads data specifying timeseries and timeslice save points
+! ---------------------------------------------------------------------------------------!
 
 ! local variables
 integer::var_count,n
@@ -353,13 +425,16 @@ close(unit=10)
 end subroutine load_data_saving
 
 ! ---------------------------------------------------------------------------------------!
-! initialise_output
-! - creates output and restart directories if needed
-! - calls subroutines to initialise timeslice and timeseries output
+
 ! ---------------------------------------------------------------------------------------!
 
 
 subroutine initialise_output()
+! ---------------------------------------------------------------------------------------!
+!! Initialises timeslice and timeseries output files
+!!
+!! - creates output and restart directories if needed
+! ---------------------------------------------------------------------------------------!
 
 logical::exist_dir
 
@@ -387,11 +462,14 @@ close(unit=20)
 end subroutine initialise_output
 
 ! ---------------------------------------------------------------------------------------!
-! intitialise_timeseries_output
-! - write headers for timeseries output
+
 ! ---------------------------------------------------------------------------------------!
 
 subroutine initialise_timeseries_output()
+
+! ---------------------------------------------------------------------------------------!
+!! Initialise timeseries output files
+! ---------------------------------------------------------------------------------------!
 
 ! atm CO2
 open(unit=10,file='../output/'//trim(gen_config_filename)//'/timeseries_atm_CO2.dat',status='replace')
@@ -438,12 +516,14 @@ close(unit=10)
 end subroutine initialise_timeseries_output
 
 ! ---------------------------------------------------------------------------------------!
-! write_timeseries_output
-! - writes output to timeseries output files
+
 ! ---------------------------------------------------------------------------------------!
 
 
 subroutine write_timeseries_output()
+! ---------------------------------------------------------------------------------------!
+!! Writes timeseries output to file
+! ---------------------------------------------------------------------------------------!
 
 real::rvol_tot,rvol_sur_tot,rvol_deep_tot
 
@@ -523,11 +603,13 @@ close(unit=10)
 end subroutine write_timeseries_output
 
 ! ---------------------------------------------------------------------------------------!
-! intitialise_timeslice_output
-! - create netcdf file for timeslice output
+
 ! ---------------------------------------------------------------------------------------!
 
 subroutine initialise_timeslice_output()
+! ---------------------------------------------------------------------------------------!
+!! Initialises netCDF output
+! ---------------------------------------------------------------------------------------!
 
 	integer::ncid,status,m_dimid,n_dimid,PO4id,DOPid,EXPORTid,n_season,DICid,ALKid,airseaCO2id,popreminid,po4uptakeid
 	integer::lon_dimid,lat_dimid,depth_dimid
@@ -601,13 +683,16 @@ if(status /= nf90_NoErr) print*,trim(nf90_strerror(status))
 end subroutine initialise_timeslice_output
 
 ! ---------------------------------------------------------------------------------------!
-! write_output_netcdf
-! - writes output to timeslice output file
-! - n.b. currently just last timestep!
+
 ! ---------------------------------------------------------------------------------------!
 
 
 subroutine write_output_netcdf()
+! ---------------------------------------------------------------------------------------!
+!! writes netCDF output
+!!
+!! - currently just for the last timestep!!
+! ---------------------------------------------------------------------------------------!
 
 integer::ncid,status,var_id
 real,dimension(NX,NY,NZ)::field
@@ -690,11 +775,13 @@ if(status /= nf90_NoErr) print*,trim(nf90_strerror(status))
 end subroutine write_output_netcdf
 
 ! ---------------------------------------------------------------------------------------!
-! write_restart
-! - binary dump of state variables
+
 ! ---------------------------------------------------------------------------------------!
 
 subroutine write_restart()
+! ---------------------------------------------------------------------------------------!
+!! Writes state variables to binary for restart
+! ---------------------------------------------------------------------------------------!
 
 integer::ios
 
@@ -708,11 +795,13 @@ print*,'Restart saved to'//'../output/'//trim(gen_config_filename)//'/restart/re
 end subroutine write_restart
 
 ! ---------------------------------------------------------------------------------------!
-! load_restart
-! - load in state variables in binary dump from previous run
+
 ! ---------------------------------------------------------------------------------------!
 
 subroutine load_restart()
+! ---------------------------------------------------------------------------------------!
+!! Loads state variables from binary from restart experiment
+! ---------------------------------------------------------------------------------------!
 
 integer::ios
 
@@ -724,11 +813,13 @@ close(10,iostat=ios)
 end subroutine load_restart
 
 ! ---------------------------------------------------------------------------------------!
-! write_PO4_uptake
-! - write fixed PO4 uptake to binary dump
+
 ! ---------------------------------------------------------------------------------------!
 
 subroutine write_PO4_uptake()
+! ---------------------------------------------------------------------------------------!
+!! Write PO4 uptake to binary for fixed export subroutine
+! ---------------------------------------------------------------------------------------!
 
 integer::ios
 
@@ -744,11 +835,13 @@ endif
 end subroutine write_PO4_uptake
 
 ! ---------------------------------------------------------------------------------------!
-! load_PO4_uptake
-! - load fixed PO4 uptake from binary dump
+
 ! ---------------------------------------------------------------------------------------!
 
 subroutine load_PO4_uptake()
+! ---------------------------------------------------------------------------------------!
+!! Load PO4 uptake binary for fixed uptake subroutine
+! ---------------------------------------------------------------------------------------!
 
 integer::ios
 print*,'loading in fixed PO4 uptake data from:','../data/'//trim(tm_PO4uptake_filename)
@@ -759,11 +852,13 @@ close(10,iostat=ios)
 end subroutine load_PO4_uptake
 
 ! ---------------------------------------------------------------------------------------!
-! v2f
-! - convert vector into field
+
 ! ---------------------------------------------------------------------------------------!
 
 function v2f(vector)
+! ---------------------------------------------------------------------------------------!
+!! reorder vector into a 3D field
+! ---------------------------------------------------------------------------------------!
 
 real,dimension(NX,NY,NZ)::v2f
 real,dimension(tm_nbox)::vector
